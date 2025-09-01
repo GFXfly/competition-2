@@ -58,6 +58,13 @@ systemctl enable nginx
 
 # 6. 创建项目目录
 echo -e "${BLUE}[6/10] 创建项目目录...${NC}"
+
+# 如果目录已存在，先清理
+if [ -d "$PROJECT_DIR" ]; then
+    echo -e "${YELLOW}项目目录已存在，正在清理...${NC}"
+    rm -rf "$PROJECT_DIR"
+fi
+
 mkdir -p "$PROJECT_DIR"
 cd "$PROJECT_DIR"
 
