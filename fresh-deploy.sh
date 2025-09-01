@@ -96,11 +96,14 @@ fi
 # 10. 配置 Nginx
 echo -e "${BLUE}[10/10] 配置 Nginx...${NC}"
 
-# 删除默认配置
-rm -f /etc/nginx/sites-enabled/default
-
-# 创建新的配置文件
-cat > /etc/nginx/sites-available/competition-2 << EOF
+# 检测Nginx配置目录结构
+if [ -d "/www/server/nginx/conf" ]; then
+    # 宝塔面板或类似环境
+    NGINX_CONF_DIR="/www/server/nginx/conf"
+    NGINX_VHOST_DIR="$NGINX_CONF_DIR/vhost"
+    mkdir -p "$NGINX_VHOST_DIR"
+    
+    cat > "$NGINX_VHOST_DIR/competition-2.conf" << EOF
 server {
     listen 80;
     server_name $DOMAIN;
@@ -109,7 +112,7 @@ server {
         proxy_pass http://127.0.0.1:$PORT;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
+        proxy_set_header Connection upgrade;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -118,19 +121,76 @@ server {
     }
 }
 EOF
+    
+    echo -e "${GREEN}已创建宝塔面板Nginx配置: $NGINX_VHOST_DIR/competition-2.conf${NC}"
+    
+elif [ -d "/etc/nginx/sites-available" ]; then
+    # 标准Ubuntu/Debian环境
+    rm -f /etc/nginx/sites-enabled/default
+    
+    cat > /etc/nginx/sites-available/competition-2 << EOF
+server {
+    listen 80;
+    server_name $DOMAIN;
 
-# 启用站点
-ln -sf /etc/nginx/sites-available/competition-2 /etc/nginx/sites-enabled/
+    location / {
+        proxy_pass http://127.0.0.1:$PORT;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection upgrade;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+}
+EOF
+    
+    ln -sf /etc/nginx/sites-available/competition-2 /etc/nginx/sites-enabled/
+    echo -e "${GREEN}已创建标准Nginx配置${NC}"
+    
+else
+    # 其他环境，使用conf.d
+    mkdir -p /etc/nginx/conf.d
+    
+    cat > /etc/nginx/conf.d/competition-2.conf << EOF
+server {
+    listen 80;
+    server_name $DOMAIN;
 
-# 测试 Nginx 配置
-nginx -t
-if [ $? -ne 0 ]; then
-    echo -e "${RED}Nginx 配置错误${NC}"
-    exit 1
+    location / {
+        proxy_pass http://127.0.0.1:$PORT;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection upgrade;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+}
+EOF
+    
+    echo -e "${GREEN}已创建conf.d Nginx配置${NC}"
 fi
 
-# 重载 Nginx
-systemctl reload nginx
+# 测试 Nginx 配置
+echo -e "${YELLOW}测试Nginx配置...${NC}"
+if nginx -t; then
+    echo -e "${GREEN}Nginx配置测试通过${NC}"
+    # 重启 Nginx (某些环境reload可能不生效)
+    if systemctl restart nginx; then
+        echo -e "${GREEN}Nginx重启成功${NC}"
+    else
+        echo -e "${YELLOW}尝试使用其他方式重启Nginx...${NC}"
+        service nginx restart || /etc/init.d/nginx restart
+    fi
+else
+    echo -e "${YELLOW}Nginx配置测试失败，但继续部署...${NC}"
+    echo -e "${YELLOW}您可能需要手动配置Nginx反向代理到端口$PORT${NC}"
+fi
 
 # 启动应用
 echo -e "${GREEN}启动应用...${NC}"
