@@ -73,11 +73,15 @@ fi
 
 # 8. 安装项目依赖
 echo -e "${BLUE}[8/10] 安装项目依赖...${NC}"
-npm install
+npm install --legacy-peer-deps
 
 if [ $? -ne 0 ]; then
-    echo -e "${RED}依赖安装失败${NC}"
-    exit 1
+    echo -e "${YELLOW}尝试使用 --force 参数重新安装...${NC}"
+    npm install --force
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}依赖安装失败${NC}"
+        exit 1
+    fi
 fi
 
 # 9. 构建项目
