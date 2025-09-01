@@ -91,8 +91,16 @@ if [ $? -ne 0 ]; then
     fi
 fi
 
-# 9. 构建项目
-echo -e "${BLUE}[9/10] 构建项目...${NC}"
+# 9. 创建环境变量文件
+echo -e "${BLUE}[9/11] 创建环境变量文件...${NC}"
+cat > .env.local << 'EOF'
+DEEPSEEK_API_KEY=sk-393b3a1038cf4b8fbf448d4e8fa719a8
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+EOF
+echo -e "${GREEN}环境变量文件已创建${NC}"
+
+# 10. 构建项目
+echo -e "${BLUE}[10/11] 构建项目...${NC}"
 npm run build
 
 if [ $? -ne 0 ]; then
@@ -100,8 +108,8 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# 10. 配置 Nginx
-echo -e "${BLUE}[10/10] 配置 Nginx...${NC}"
+# 11. 配置 Nginx
+echo -e "${BLUE}[11/11] 配置 Nginx...${NC}"
 
 # 检测Nginx配置目录结构
 if [ -d "/www/server/nginx/conf" ]; then
