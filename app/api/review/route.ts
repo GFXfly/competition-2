@@ -509,7 +509,7 @@ function generateMockReview(documentContent: string): ReviewResult {
         suggestion: '请提供可读取的政策文本内容（如Word文档、PDF文档或纯文本格式），以便进行公平竞争审查。需要包含具体的政策措施文字表述。',
         severity: 'high',
         isSpecificOperator: false,
-        specificOperatorType: '',
+        specificOperatorType: '其他',
         problemDescription: '文档格式存在问题导致无法正常解析内容，可能是由于文档加密、格式损坏或不支持的文件类型，无法进行有效的公平竞争审查，需要提供标准格式的政策文本'
       }],
       reviewTime: new Date().toLocaleString('zh-CN')
