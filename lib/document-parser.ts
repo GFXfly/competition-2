@@ -42,10 +42,9 @@ class DocumentParser {
     }
   }
 
-  // 解析DOC文件（通过服务器端API）
-  async parseDocFile(file: File): Promise<ParsedDocument> {
-    // DOC文件也通过服务器端解析
-    return this.parseDocxFile(file);
+  // 解析DOC文件：当前不直接支持，提示用户转换
+  async parseDocFile(_file: File): Promise<ParsedDocument> {
+    throw new Error('暂不支持 .doc（二进制）格式，请先将文件转换为 .docx 再上传');
   }
 
   private async fileToBase64(file: File): Promise<string> {

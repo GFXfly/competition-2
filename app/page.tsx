@@ -12,7 +12,7 @@ import { TooltipProvider, Tooltip, TooltipContent, TooltipTrigger } from "@/comp
 import { deepseekAPI, ReviewResult } from "@/lib/deepseek-api"
 import { documentParser, ParsedDocument } from "@/lib/document-parser"
 import { reportGenerator } from "@/lib/report-generator"
-import { reviewHistoryManager } from "@/lib/review-history"
+import { reviewHistoryManager, type ReviewRecord } from "@/lib/review-history"
 
 interface ProcessStep {
   id: number
@@ -22,8 +22,13 @@ interface ProcessStep {
 
 // 审查记录管理组件
 const HistoryContent: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const [records, setRecords] = useState<any[]>([])
-  const [stats, setStats] = useState<any>(null)
+  const [records, setRecords] = useState<ReviewRecord[]>([])
+  const [stats, setStats] = useState<{
+    totalCount: number;
+    compliantCount: number;
+    issuesCount: number;
+    recentActivity: string;
+  } | null>(null)
   const { toast } = useToast()
 
   useEffect(() => {
@@ -188,18 +193,12 @@ export default function HomePage() {
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (file) {
-      // 验证文件格式
-      const allowedTypes = [
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'application/msword'
-      ];
-      
-      if (!allowedTypes.includes(file.type)) {
-        toast({
-          title: "文件格式不支持",
-          description: "请上传 .docx 或 .doc 格式的文件",
-          variant: "destructive",
-        })
+      // 验证文件格式（仅支持 .docx；.doc 请先转换）
+      const isDocx = file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || /\.docx$/i.test(file.name)
+      const isDoc = file.type === 'application/msword' || /\.doc$/i.test(file.name)
+      if (!isDocx) {
+        const desc = isDoc ? '暂不支持 .doc（二进制）格式，请先转换为 .docx 再上传' : '请上传 .docx 格式的文件'
+        toast({ title: '文件格式不支持', description: desc, variant: 'destructive' })
         return
       }
 
@@ -234,18 +233,12 @@ export default function HomePage() {
 
     const file = event.dataTransfer.files[0]
     if (file) {
-      // 验证文件格式
-      const allowedTypes = [
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'application/msword'
-      ];
-      
-      if (!allowedTypes.includes(file.type)) {
-        toast({
-          title: "文件格式不支持",
-          description: "请上传 .docx 或 .doc 格式的文件",
-          variant: "destructive",
-        })
+      // 验证文件格式（仅支持 .docx；.doc 请先转换）
+      const isDocx = file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || /\.docx$/i.test(file.name)
+      const isDoc = file.type === 'application/msword' || /\.doc$/i.test(file.name)
+      if (!isDocx) {
+        const desc = isDoc ? '暂不支持 .doc（二进制）格式，请先转换为 .docx 再上传' : '请上传 .docx 格式的文件'
+        toast({ title: '文件格式不支持', description: desc, variant: 'destructive' })
         return
       }
 
@@ -268,9 +261,11 @@ export default function HomePage() {
       // 解析文档内容
       try {
         let parsed: ParsedDocument
-        if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+        const isDocx = file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || /\.docx$/i.test(file.name)
+        if (isDocx) {
           parsed = await documentParser.parseDocxFile(file)
         } else {
+          // 非 docx 一律走 doc 分支（其中会提示不支持）
           parsed = await documentParser.parseDocFile(file)
         }
         
@@ -611,7 +606,7 @@ export default function HomePage() {
                   拖拽文件到此处或点击上传
                 </h3>
                 <p className="text-base text-slate-600 dark:text-slate-400 mb-6">
-                  支持 .docx、.doc 格式文件，最大支持 10MB
+                  仅支持 .docx 格式文件，最大 10MB
                 </p>
 
                 {selectedFile && parsedDocument && (

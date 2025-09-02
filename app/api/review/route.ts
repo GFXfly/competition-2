@@ -81,6 +81,29 @@ const PRECISE_CLAUSE_MAPPING = {
   }
 };
 
+// 简单的内存级限流（按 IP 粒度，不适用于无状态多实例，仅作基础保护）
+const rateStore = new Map<string, { windowStart: number; count: number }>();
+const WINDOW_MS = 60_000; // 1 分钟
+const MAX_REQ_PER_WINDOW = 60; // 每分钟最多 60 次
+
+function getClientId(req: NextRequest): string {
+  const xff = req.headers.get('x-forwarded-for') || '';
+  const ip = xff.split(',')[0].trim() || req.headers.get('x-real-ip') || 'anonymous';
+  return `ip:${ip}`;
+}
+
+function checkRateLimit(clientId: string): boolean {
+  const now = Date.now();
+  const entry = rateStore.get(clientId);
+  if (!entry || now - entry.windowStart > WINDOW_MS) {
+    rateStore.set(clientId, { windowStart: now, count: 1 });
+    return true;
+  }
+  if (entry.count >= MAX_REQ_PER_WINDOW) return false;
+  entry.count += 1;
+  return true;
+}
+
 // 智能违规检测引擎
 class IntelligentViolationDetector {
   private static processedTexts = new Set<string>();
@@ -513,6 +536,21 @@ function generateMockReview(documentContent: string): ReviewResult {
 export async function POST(request: NextRequest) {
   let documentContent = '';
   try {
+    // 可选鉴权：若设置 API_AUTH_TOKEN，则要求请求头携带 x-api-token 匹配
+    const requiredToken = process.env.API_AUTH_TOKEN;
+    if (requiredToken) {
+      const token = request.headers.get('x-api-token');
+      if (!token || token !== requiredToken) {
+        return NextResponse.json({ error: '未授权的请求' }, { status: 401 });
+      }
+    }
+
+    // 限流
+    const clientId = getClientId(request);
+    if (!checkRateLimit(clientId)) {
+      return NextResponse.json({ error: '请求过于频繁，请稍后再试' }, { status: 429 });
+    }
+
     const requestData = await request.json();
     documentContent = requestData.documentContent;
 
@@ -520,6 +558,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: '文档内容不能为空' },
         { status: 400 }
+      );
+    }
+
+    // 服务端长度约束（与客户端保持一致，增强健壮性）
+    if (typeof documentContent !== 'string' || documentContent.length > 50000) {
+      return NextResponse.json(
+        { error: '文档内容过长，请分段提交审查（最大约 5 万字符）' },
+        { status: 413 }
       );
     }
 
@@ -624,80 +670,117 @@ ${documentContent}
 请严格按照《公平竞争审查条例实施办法》进行审查，不要随意发挥或添加额外内容。`;
 
     const apiKey = process.env.DEEPSEEK_API_KEY;
+    const baseUrl = (process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com').replace(/\/+$/, '');
+
+    // 当未配置密钥时，优雅降级到本地模拟结果，避免UI中断
     if (!apiKey) {
-      return NextResponse.json(
-        { error: 'DeepSeek API密钥未配置' },
-        { status: 500 }
-      );
-    }
-
-    const response = await fetch('https://api.deepseek.com/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'deepseek-chat',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-        max_tokens: 4000,
-        temperature: 0.1,
-        stream: false,
-      }),
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      console.error('DeepSeek API错误:', error);
-      
-      // 如果API调用失败，返回模拟审查结果
       const mockResult = generateMockReview(documentContent);
       return NextResponse.json(mockResult);
     }
 
-    const result = await response.json();
-    const content = result.choices[0].message.content;
+    // 长文档分片处理（仅在配置了 API Key 时调用外部 API）
+    const MAX_CHARS_PER_CHUNK = 9000;
+    async function callDeepSeek(chunk: string): Promise<ReviewResult> {
+      const response = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'deepseek-chat',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: `请对以下政策文档进行公平竞争审查：\n\n${chunk}\n\n请严格按照《公平竞争审查条例实施办法》进行审查，不要随意发挥或添加额外内容。` }
+          ],
+          max_tokens: 4000,
+          temperature: 0.1,
+          stream: false,
+        }),
+      });
 
-    // 尝试解析JSON响应
-    let reviewResult: ReviewResult;
-    try {
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsedResult = JSON.parse(jsonMatch[0]);
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`DeepSeek API错误: ${error}`);
+      }
+
+      const result = await response.json();
+      const content = result.choices[0].message.content;
+      let reviewResult: ReviewResult;
+      try {
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsedResult = JSON.parse(jsonMatch[0]);
+          reviewResult = {
+            isCompliant: parsedResult.isCompliant,
+            summary: parsedResult.summary,
+            totalIssues: parsedResult.totalIssues || parsedResult.issues?.length || 0,
+            issues: parsedResult.issues || [],
+            reviewTime: new Date().toLocaleString('zh-CN')
+          };
+        } else {
+          throw new Error('No JSON found in response');
+        }
+      } catch (parseError) {
+        const isCompliant = !content.toLowerCase().includes('违反') && !content.toLowerCase().includes('问题');
         reviewResult = {
-          isCompliant: parsedResult.isCompliant,
-          summary: parsedResult.summary,
-          totalIssues: parsedResult.totalIssues || parsedResult.issues?.length || 0,
-          issues: parsedResult.issues || [],
+          isCompliant,
+          summary: content.substring(0, 200) + '...',
+          totalIssues: isCompliant ? 0 : 1,
+          issues: isCompliant ? [] : [{
+            originalText: '文档中发现潜在问题',
+            violatedClause: '需要进一步人工审查',
+            suggestion: '建议人工详细审查该文档',
+            severity: 'medium',
+            problemDescription: '系统检测到文档中存在潜在的公平竞争问题，但无法自动识别具体违规内容，建议进行人工详细审查以确定具体问题和整改措施'
+          }],
           reviewTime: new Date().toLocaleString('zh-CN')
         };
-      } else {
-        throw new Error('No JSON found in response');
       }
-    } catch (parseError) {
-      console.error('JSON解析失败:', parseError);
-      // 如果JSON解析失败，尝试从文本中提取信息
-      const isCompliant = !content.toLowerCase().includes('违反') && !content.toLowerCase().includes('问题');
-      
-      reviewResult = {
-        isCompliant,
-        summary: content.substring(0, 200) + '...',
-        totalIssues: isCompliant ? 0 : 1,
-        issues: isCompliant ? [] : [{
-          originalText: '文档中发现潜在问题',
-          violatedClause: '需要进一步人工审查',
-          suggestion: '建议人工详细审查该文档',
-          severity: 'medium' as const,
-          problemDescription: '系统检测到文档中存在潜在的公平竞争问题，但无法自动识别具体违规内容，建议进行人工详细审查以确定具体问题和整改措施'
-        }],
-        reviewTime: new Date().toLocaleString('zh-CN')
-      };
+      return reviewResult;
     }
 
-    return NextResponse.json(reviewResult);
+    let finalResult: ReviewResult;
+    if (documentContent.length > MAX_CHARS_PER_CHUNK) {
+      // 简单按句号切分并合并
+      const chunks: string[] = [];
+      let buffer = '';
+      for (const ch of documentContent) {
+        buffer += ch;
+        if (buffer.length >= MAX_CHARS_PER_CHUNK && /[。；!?]/.test(ch)) {
+          chunks.push(buffer);
+          buffer = '';
+        }
+      }
+      if (buffer) chunks.push(buffer);
+
+      const results: ReviewResult[] = [];
+      for (const c of chunks) {
+        try {
+          results.push(await callDeepSeek(c));
+        } catch (e) {
+          // 任一分片失败则回退到本地检测
+          const mock = generateMockReview(documentContent);
+          return NextResponse.json(mock);
+        }
+      }
+
+      const mergedIssues = results.flatMap(r => r.issues);
+      const isCompliant = mergedIssues.length === 0;
+      finalResult = {
+        isCompliant,
+        summary: isCompliant
+          ? '经分片审查，文档基本符合公平竞争要求。'
+          : `经分片审查，共发现 ${mergedIssues.length} 个问题。` ,
+        totalIssues: mergedIssues.length,
+        issues: mergedIssues,
+        reviewTime: new Date().toLocaleString('zh-CN')
+      };
+    } else {
+      finalResult = await callDeepSeek(documentContent);
+    }
+
+    return NextResponse.json(finalResult);
 
   } catch (error) {
     console.error('审查过程出错:', error);
@@ -712,6 +795,7 @@ ${documentContent}
 export async function GET() {
   try {
     const apiKey = process.env.DEEPSEEK_API_KEY;
+    const baseUrl = (process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com').replace(/\/+$/, '');
     if (!apiKey) {
       return NextResponse.json({
         connected: false, 
@@ -720,7 +804,7 @@ export async function GET() {
       });
     }
 
-    const response = await fetch('https://api.deepseek.com/chat/completions', {
+    const response = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,

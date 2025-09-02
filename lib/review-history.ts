@@ -1,4 +1,5 @@
 // 审查记录管理
+import type { ReviewResult } from './deepseek-api'
 export interface ReviewRecord {
   id: string;
   fileName: string;
@@ -16,7 +17,7 @@ class ReviewHistoryManager {
   private readonly STORAGE_KEY = 'fairCompetition_reviewHistory';
 
   // 保存审查记录
-  saveReviewRecord(fileName: string, fileSize: number, reviewResult: any): string {
+  saveReviewRecord(fileName: string, fileSize: number, reviewResult: ReviewResult): string {
     const records = this.getAllRecords();
     
     const newRecord: ReviewRecord = {

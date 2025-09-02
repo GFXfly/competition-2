@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# 公平竞争审查系统 V1.0.0 全新部署脚本
+# 公平竞争审查系统 V2.0.0 全新部署脚本
 # 适用于清空后的阿里云服务器
 
 # 配置变量
@@ -18,7 +18,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 echo -e "${GREEN}=========================================${NC}"
-echo -e "${GREEN}  公平竞争审查系统全新部署脚本 V1.0.0  ${NC}"
+echo -e "${GREEN}  公平竞争审查系统全新部署脚本 V2.0.0  ${NC}"
 echo -e "${GREEN}=========================================${NC}"
 
 # 1. 系统更新
@@ -94,10 +94,11 @@ fi
 # 9. 创建环境变量文件
 echo -e "${BLUE}[9/11] 创建环境变量文件...${NC}"
 cat > .env.local << 'EOF'
-DEEPSEEK_API_KEY=sk-393b3a1038cf4b8fbf448d4e8fa719a8
+# 请在部署前替换为实际密钥，且勿提交到版本库
+DEEPSEEK_API_KEY=YOUR_DEEPSEEK_API_KEY
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 EOF
-echo -e "${GREEN}环境变量文件已创建${NC}"
+echo -e "${GREEN}环境变量文件已创建（已使用占位符）。请编辑 .env.local 填入真实密钥。${NC}"
 
 # 10. 构建项目
 echo -e "${BLUE}[10/11] 构建项目...${NC}"
