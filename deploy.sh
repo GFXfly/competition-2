@@ -60,7 +60,7 @@ server {
     server_name $DOMAIN www.$DOMAIN;
 
     location / {
-        proxy_pass http://localhost:3000;
+        proxy_pass http://localhost:3001;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -85,7 +85,7 @@ pm2 status $PROJECT_NAME
 
 # 9. 测试部署
 echo "🧪 测试部署..."
-curl -f http://localhost:3000 > /dev/null
+curl -f http://localhost:3001 > /dev/null
 if [ $? -eq 0 ]; then
     echo "✅ 部署成功！服务正常运行"
     echo "🌐 访问地址: http://$DOMAIN"

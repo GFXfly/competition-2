@@ -8,7 +8,7 @@ REPO_URL="https://github.com/GFXfly/competition-2.git"
 PROJECT_DIR="/var/www/competition-2"
 APP_NAME="competition-2"
 DOMAIN="cursor2.com"
-PORT="3000"
+PORT="3001"
 
 # 颜色定义
 GREEN='\033[0;32m'
