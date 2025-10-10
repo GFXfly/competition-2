@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-interface DeepSeekMessage {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
-}
-
 interface ReviewIssue {
   originalText: string;
   violatedClause: string;
@@ -21,6 +16,7 @@ interface ReviewResult {
   totalIssues: number;
   issues: ReviewIssue[];
   reviewTime: string;
+  reviewMode?: 'api' | 'local';  // 新增：标识审查模式
 }
 
 // 精准条款映射配置
@@ -422,76 +418,6 @@ class IntelligentViolationDetector {
   }
 }
 
-// 改进的句子提取函数，专门处理中文政策文档
-function extractSentenceWithKeyword(documentContent: string, keyword: string): string {
-  const keywordIndex = documentContent.indexOf(keyword);
-  if (keywordIndex === -1) {
-    return keyword; // 如果找不到关键词，返回关键词本身
-  }
-  
-  // Step 1: 按行分割，过滤空行
-  const lines = documentContent.split('\n').filter(line => line.trim().length > 0);
-  
-  // Step 2: 找到包含关键词的行
-  const keywordLine = lines.find(line => line.includes(keyword));
-  if (keywordLine) {
-    const cleanLine = keywordLine.trim();
-    
-    // 如果是编号项目如（一）、（二），直接返回该项目
-    if (cleanLine.match(/^（[一二三四五六七八九十]+）/)) {
-      return cleanLine;
-    }
-    
-    // 如果行内有句子分割符，尝试提取包含关键词的句子
-    const sentences = cleanLine.split(/[。；！？]/);
-    const sentenceWithKeyword = sentences.find(s => s.includes(keyword));
-    if (sentenceWithKeyword && sentenceWithKeyword.trim().length > 0) {
-      return sentenceWithKeyword.trim();
-    }
-    
-    // 否则返回整行，但限制长度
-    return cleanLine.length > 100 ? cleanLine.substring(0, 100) + '...' : cleanLine;
-  }
-  
-  // Step 3: 复杂提取作为备用方案
-  const sentenceEnders = ['。', '；', '！', '？'];
-  const contextRadius = 150; // 在关键词周围150字符内查找
-  
-  const contextStart = Math.max(0, keywordIndex - contextRadius);
-  const contextEnd = Math.min(documentContent.length, keywordIndex + contextRadius);
-  const context = documentContent.substring(contextStart, contextEnd);
-  
-  const keywordPosInContext = context.indexOf(keyword);
-  
-  // 向前找句子开始
-  let sentenceStart = keywordPosInContext;
-  while (sentenceStart > 0) {
-    const char = context[sentenceStart - 1];
-    if (sentenceEnders.includes(char) || char === '\n') {
-      break;
-    }
-    sentenceStart--;
-  }
-  
-  // 向后找句子结束
-  let sentenceEnd = keywordPosInContext + keyword.length;
-  while (sentenceEnd < context.length) {
-    const char = context[sentenceEnd];
-    if (sentenceEnders.includes(char)) {
-      sentenceEnd++; // 包含标点符号
-      break;
-    }
-    // 遇到新段落开始就停止
-    if (char === '\n' && context.substring(sentenceEnd + 1).match(/^(第|（[一二三四五六七八九十]+）)/)) {
-      break;
-    }
-    sentenceEnd++;
-  }
-  
-  const extractedText = context.substring(sentenceStart, sentenceEnd).trim();
-  return extractedText.length > 100 ? extractedText.substring(0, 100) + '...' : extractedText;
-}
-
 // 模拟审查函数（API不可用时的备选方案）
 function generateMockReview(documentContent: string): ReviewResult {
   // 检查文档内容是否有效
@@ -663,24 +589,23 @@ export async function POST(request: NextRequest) {
   ]
 }`;
 
-    const userPrompt = `请对以下政策文档进行公平竞争审查：
-
-${documentContent}
-
-请严格按照《公平竞争审查条例实施办法》进行审查，不要随意发挥或添加额外内容。`;
-
     const apiKey = process.env.DEEPSEEK_API_KEY;
     const baseUrl = (process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com').replace(/\/+$/, '');
 
     // 当未配置密钥时，优雅降级到本地模拟结果，避免UI中断
     if (!apiKey) {
+      console.log('⚠️  未配置 DEEPSEEK_API_KEY，使用本地模拟审查模式');
       const mockResult = generateMockReview(documentContent);
+      mockResult.reviewMode = 'local';
       return NextResponse.json(mockResult);
     }
+
+    console.log('✅ 使用 DeepSeek API 进行审查，模型: deepseek-chat');
 
     // 长文档分片处理（仅在配置了 API Key 时调用外部 API）
     const MAX_CHARS_PER_CHUNK = 9000;
     async function callDeepSeek(chunk: string): Promise<ReviewResult> {
+      console.log(`🔄 正在调用 DeepSeek API，文档长度: ${chunk.length} 字符`);
       const response = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
@@ -688,7 +613,7 @@ ${documentContent}
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'deepseek-chat-v3.2',
+          model: 'deepseek-chat',
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: `请对以下政策文档进行公平竞争审查：\n\n${chunk}\n\n请严格按照《公平竞争审查条例实施办法》进行审查，不要随意发挥或添加额外内容。` }
@@ -701,10 +626,12 @@ ${documentContent}
 
       if (!response.ok) {
         const error = await response.text();
+        console.error('❌ DeepSeek API 调用失败:', error);
         throw new Error(`DeepSeek API错误: ${error}`);
       }
 
       const result = await response.json();
+      console.log('✅ DeepSeek API 响应成功，Token 使用:', result.usage);
       const content = result.choices[0].message.content;
       let reviewResult: ReviewResult;
       try {
@@ -716,7 +643,8 @@ ${documentContent}
             summary: parsedResult.summary,
             totalIssues: parsedResult.totalIssues || parsedResult.issues?.length || 0,
             issues: parsedResult.issues || [],
-            reviewTime: new Date().toLocaleString('zh-CN')
+            reviewTime: new Date().toLocaleString('zh-CN'),
+            reviewMode: 'api'
           };
         } else {
           throw new Error('No JSON found in response');
@@ -734,7 +662,8 @@ ${documentContent}
             severity: 'medium',
             problemDescription: '系统检测到文档中存在潜在的公平竞争问题，但无法自动识别具体违规内容，建议进行人工详细审查以确定具体问题和整改措施'
           }],
-          reviewTime: new Date().toLocaleString('zh-CN')
+          reviewTime: new Date().toLocaleString('zh-CN'),
+          reviewMode: 'api'
         };
       }
       return reviewResult;
@@ -760,6 +689,7 @@ ${documentContent}
           results.push(await callDeepSeek(c));
         } catch (e) {
           // 任一分片失败则回退到本地检测
+          console.log('⚠️  API 调用失败，回退到本地模拟审查模式');
           const mock = generateMockReview(documentContent);
           return NextResponse.json(mock);
         }
@@ -774,19 +704,23 @@ ${documentContent}
           : `经分片审查，共发现 ${mergedIssues.length} 个问题。` ,
         totalIssues: mergedIssues.length,
         issues: mergedIssues,
-        reviewTime: new Date().toLocaleString('zh-CN')
+        reviewTime: new Date().toLocaleString('zh-CN'),
+        reviewMode: 'api'
       };
     } else {
       finalResult = await callDeepSeek(documentContent);
     }
 
+    console.log(`✅ 审查完成，模式: ${finalResult.reviewMode}，问题数: ${finalResult.totalIssues}`);
     return NextResponse.json(finalResult);
 
   } catch (error) {
     console.error('审查过程出错:', error);
-    
+
     // 如果整个审查过程出错，返回模拟审查结果
+    console.log('⚠️  审查出错，回退到本地模拟审查模式');
     const mockResult = generateMockReview(documentContent || '');
+    mockResult.reviewMode = 'local';
     return NextResponse.json(mockResult);
   }
 }
