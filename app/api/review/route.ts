@@ -688,7 +688,7 @@ ${documentContent}
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'deepseek-chat',
+          model: 'deepseek-chat-v3.2',
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: `请对以下政策文档进行公平竞争审查：\n\n${chunk}\n\n请严格按照《公平竞争审查条例实施办法》进行审查，不要随意发挥或添加额外内容。` }

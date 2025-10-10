@@ -1,4 +1,4 @@
-// DeepSeek V3.1 API Integration
+// DeepSeek V3.2 API Integration
 export interface DeepSeekMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;

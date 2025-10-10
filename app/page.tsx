@@ -572,7 +572,7 @@ export default function HomePage() {
             公平竞争审查在线工具
           </h1>
           <p className="text-xl text-slate-600 dark:text-slate-400 max-w-2xl mx-auto leading-relaxed">
-            杭州市临安区公平竞争审查专用 - 集成 DeepSeek V3.1 AI
+            杭州市临安区公平竞争审查专用 - 集成 DeepSeek V3.2 AI
           </p>
         </header>
 
@@ -708,7 +708,14 @@ export default function HomePage() {
             <span className="text-slate-400 dark:text-slate-600">|</span>
             <span>© 2025</span>
             <span className="text-slate-400 dark:text-slate-600">|</span>
-            <span>浙ICP备2025160577号</span>
+            <a
+              href="https://beian.miit.gov.cn/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 dark:text-blue-400 hover:underline"
+            >
+              浙ICP备2025160577号
+            </a>
           </div>
         </footer>
 
@@ -758,7 +765,7 @@ export default function HomePage() {
               <div className="text-center mb-8">
                 <h3 className="text-2xl font-bold text-slate-900 dark:text-slate-100">正在审查文档</h3>
                 <p className="text-slate-600 dark:text-slate-400 mt-2">
-                  {error ? "审查过程中出现错误" : "DeepSeek V3.1 正在分析您的文档..."}
+                  {error ? "审查过程中出现错误" : "DeepSeek V3.2 正在分析您的文档..."}
                 </p>
                 {error && (
                   <div className="mt-4 p-3 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg">
