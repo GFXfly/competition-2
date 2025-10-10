@@ -8,8 +8,8 @@ import { Suspense } from "react"
 import "./globals.css"
 
 export const metadata: Metadata = {
-  title: "公平竞争审查在线工具 - 杭州市临安区",
-  description: "杭州市临安区公平竞争审查专用工具",
+  title: "文件审查工具站",
+  description: "文件审查工具站 - 杭州市临安区公平竞争审查专用工具",
   generator: "v0.app",
 }
 
